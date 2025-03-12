@@ -1,9 +1,5 @@
 // Идентификатор для корпоративных облигаций — TQCB
 // Идентификатор для ОФЗ — TQOB
-// для акций — TQBR
-// для ETF с расчетами в рублях — TQTF, например #FXRU #VTBE #SBSP
-// для ETF с расчетами в $ — TQTD, например #TECH #TGLD #AKSP #FXIM
-// для ETF с расчетами в € — TQTE, например #TEUR #AKEU
 
 const moexColumnKeys = {
     lastPrice: "LAST",
@@ -22,7 +18,8 @@ const moexColumnKeys = {
     faceUnit: "FACEUNIT",  // валюта номинала
     duration: "DURATION",  //  дюрация, дней
     yieldToOffer: "YIELDTOOFFER",  // доходность к оферте
-    effectiveYield: "EFFECTIVEYIELD",  // эффективная доходность
+    effectiveYield: "EFFECTIVEYIELD",  // эффективная доходность,
+    lCurrentPrice: "LCURRENTPRICE" // цена
 };
 const runningRequests = new Map();
 
@@ -93,7 +90,10 @@ function getCryptoPriceUsd(ticker) {
 }
 
 function parseMoexBond(json) {
-    let lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice);
+    let lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lCurrentPrice);
+    if (!lastPrice) {
+        lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice);
+    }
     if (!lastPrice) {
         lastPrice = 0;
     }
@@ -216,10 +216,14 @@ function getRandomInt(min, max) {
     return Math.floor(Math.random() * (maxFloored - minCeiled) + minCeiled); // The maximum is exclusive and the minimum is inclusive
 }
 
+function clearCache(ticker) {
+    CacheService.getUserCache().remove(ticker);
+}
 
 function test() {
-    const ticker = "SU26238RMFS4";
-    const board = "TQOB";
+
+    const ticker = "RU000A108NS2";
+    const board = "TQCB";
     getUserCache().remove(ticker);
     const result = getMoexBond(ticker, board);
     return result;

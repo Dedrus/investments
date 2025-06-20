@@ -21,7 +21,6 @@ const moexColumnKeys = {
     effectiveYield: "EFFECTIVEYIELD",  // эффективная доходность,
     lCurrentPrice: "LCURRENTPRICE" // цена
 };
-const runningRequests = new Map();
 
 function getMoexShareLastPrice(ticker, boardId) {
     const cached = getCachedTicker(ticker);
@@ -71,22 +70,30 @@ function getCryptoPriceUsd(ticker) {
     if (cached) {
         return cached.lastPrice;
     }
-    const url = "https://cryptoprices.cc/" + ticker;
-    if (runningRequests.get(url)) {
-        while (true) {
-            sleep(getRandomInt(500, 1000));
-            const cachedValue = getCachedTicker(ticker);
-            if (cachedValue) {
-                return cachedValue.lastPrice;
-            }
-        }
+    const lockKey = `lock_${ticker}_crypto`;
+    const cache = getUserCache();
+
+    const lock = cache.get(lockKey);
+
+    if (!lock) {
+      try {
+        // Устанавливаем блокировку на 60 секунд
+        cache.put(lockKey, 'locked', 60);
+        const url = "https://cryptoprices.cc/" + ticker;
+        const response = UrlFetchApp.fetch(url);
+        const result = response.getContentText().trim();
+        putTickerToCache(ticker, { lastPrice: result });
+        return result;
+      } finally {
+        // Снимаем блокировку
+        cache.remove(lockKey);
+      }
+    } else {
+      // Ждем и рекурсивно пробуем снова
+      Utilities.sleep(1000 + Math.random() * 2000);
+      return getAndCacheMoexBondData(ticker, boardId);
     }
-    runningRequests.set(url, true);
-    const response = UrlFetchApp.fetch(url);
-    const result = response.getContentText().trim();
-    putTickerToCache(ticker, { lastPrice: result });
-    runningRequests.set(url, false);
-    return result;
+
 }
 
 function parseMoexBond(json) {
@@ -144,46 +151,65 @@ function getAndCacheMoexShareData(ticker, boardId) {
     if (boardId === undefined || boardId === null) {
         boardId = "TQBR";
     }
-    const url = getMoexShareUrl(ticker, boardId);
-    if (runningRequests.get(url)) {
-        while (true) {
-            sleep(getRandomInt(500, 1000));
-            const cachedValue = getCachedTicker(ticker);
-            if (cachedValue) {
-                return cachedValue;
-            }
-        }
+
+    const lockKey = `lock_${ticker}_${boardId}`;
+    const cache = getUserCache();
+
+    const lock = cache.get(lockKey);
+
+    if (!lock) {
+      try {
+        // Устанавливаем блокировку на 60 секунд
+        cache.put(lockKey, 'locked', 60);
+        
+        const url = getMoexShareUrl(ticker, boardId);
+        const response = UrlFetchApp.fetch(url);
+        const json = JSON.parse(response.getContentText());
+        const result = parseMoexShare(json);
+        putTickerToCache(ticker, result);
+        return result;
+      } finally {
+        // Снимаем блокировку
+        cache.remove(lockKey);
+      }
+    } else {
+      // Ждем и рекурсивно пробуем снова
+      Utilities.sleep(1000 + Math.random() * 2000);
+      return getAndCacheMoexShareData(ticker, boardId);
     }
-    runningRequests.set(url, true);
-    const response = UrlFetchApp.fetch(url);
-    const json = JSON.parse(response.getContentText());
-    const result = parseMoexShare(json);
-    getUserCache().put(ticker, JSON.stringify(result), 60 * 30);
-    runningRequests.set(url, false);
-    return result;
+    
 }
 
 function getAndCacheMoexBondData(ticker, boardId) {
     if (boardId === undefined || boardId === null) {
         throw new Error("Provide board id");
     }
-    const url = getMoexBondUrl(ticker, boardId);
-    if (runningRequests.get(url)) {
-        while (true) {
-            sleep(getRandomInt(500, 1000));
-            const cachedValue = getCachedTicker(ticker);
-            if (cachedValue) {
-                return cachedValue;
-            }
-        }
+
+    const lockKey = `lock_${ticker}_${boardId}`;
+    const cache = getUserCache();
+
+    const lock = cache.get(lockKey);
+
+    if (!lock) {
+      try {
+        // Устанавливаем блокировку на 60 секунд
+        cache.put(lockKey, 'locked', 60);
+        
+        const url = getMoexBondUrl(ticker, boardId);
+        const response = UrlFetchApp.fetch(url);
+        const json = JSON.parse(response.getContentText());
+        const result = parseMoexBond(json);
+        putTickerToCache(ticker, result);
+        return result;
+      } finally {
+        // Снимаем блокировку
+        cache.remove(lockKey);
+      }
+    } else {
+      // Ждем и рекурсивно пробуем снова
+      Utilities.sleep(1000 + Math.random() * 2000);
+      return getAndCacheMoexBondData(ticker, boardId);
     }
-    runningRequests.set(url, true);
-    const response = UrlFetchApp.fetch(url);
-    const json = JSON.parse(response.getContentText());
-    const result = parseMoexBond(json);
-    putTickerToCache(ticker, result);
-    runningRequests.set(url, false);
-    return result;
 }
 
 function getCachedTicker(ticker) {
@@ -226,5 +252,6 @@ function test() {
     const board = "TQCB";
     getUserCache().remove(ticker);
     const result = getMoexBond(ticker, board);
+    const result2 = getMoexBond(ticker, board);
     return result;
 }

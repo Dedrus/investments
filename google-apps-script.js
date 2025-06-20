@@ -174,7 +174,7 @@ function getAndCacheMoexShareData(ticker, boardId) {
       }
     } else {
       // Ждем и рекурсивно пробуем снова
-      Utilities.sleep(1000 + Math.random() * 2000);
+      sleep(1000 + getRandomInt(100, 2000));
       return getAndCacheMoexShareData(ticker, boardId);
     }
     
@@ -207,7 +207,7 @@ function getAndCacheMoexBondData(ticker, boardId) {
       }
     } else {
       // Ждем и рекурсивно пробуем снова
-      Utilities.sleep(1000 + Math.random() * 2000);
+      sleep(1000 + getRandomInt(100, 2000));
       return getAndCacheMoexBondData(ticker, boardId);
     }
 }

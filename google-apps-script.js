@@ -77,8 +77,8 @@ function getCryptoPriceUsd(ticker) {
 
     if (!lock) {
       try {
-        // Устанавливаем блокировку на 60 секунд
-        cache.put(lockKey, 'locked', 60);
+        // Устанавливаем блокировку на 30 секунд
+        cache.put(lockKey, 'locked', 30);
         const url = "https://cryptoprices.cc/" + ticker;
         const response = UrlFetchApp.fetch(url);
         const result = response.getContentText().trim();
@@ -159,8 +159,8 @@ function getAndCacheMoexShareData(ticker, boardId) {
 
     if (!lock) {
       try {
-        // Устанавливаем блокировку на 60 секунд
-        cache.put(lockKey, 'locked', 60);
+        // Устанавливаем блокировку на 30 секунд
+        cache.put(lockKey, 'locked', 30);
         
         const url = getMoexShareUrl(ticker, boardId);
         const response = UrlFetchApp.fetch(url);
@@ -174,7 +174,7 @@ function getAndCacheMoexShareData(ticker, boardId) {
       }
     } else {
       // Ждем и рекурсивно пробуем снова
-      sleep(1000 + getRandomInt(100, 2000));
+      sleep(1000 + getRandomInt(100, 500));
       return getAndCacheMoexShareData(ticker, boardId);
     }
     
@@ -192,8 +192,8 @@ function getAndCacheMoexBondData(ticker, boardId) {
 
     if (!lock) {
       try {
-        // Устанавливаем блокировку на 60 секунд
-        cache.put(lockKey, 'locked', 60);
+        // Устанавливаем блокировку на 30 секунд
+        cache.put(lockKey, 'locked', 30);
         
         const url = getMoexBondUrl(ticker, boardId);
         const response = UrlFetchApp.fetch(url);
@@ -207,7 +207,7 @@ function getAndCacheMoexBondData(ticker, boardId) {
       }
     } else {
       // Ждем и рекурсивно пробуем снова
-      sleep(1000 + getRandomInt(100, 2000));
+      sleep(1000 + getRandomInt(100, 500));
       return getAndCacheMoexBondData(ticker, boardId);
     }
 }
@@ -225,11 +225,12 @@ function getUserCache() {
 }
 
 function getMoexShareUrl(ticker, boardId) {
-    return "https://iss.moex.com/iss/engines/stock/markets/shares/boards/" + boardId + "/securities/" + ticker + ".json?iss.meta=off";
+    return "https://iss.moex.com/iss/engines/stock/markets/shares/boards/" + boardId + "/securities/" + ticker + ".json?iss.meta=off&iss.only=marketdata,securities&marketdata.columns=LAST&securities.columns=SHORTNAME";
 }
 
 function getMoexBondUrl(ticker, boardId) {
-    return "https://iss.moex.com/iss/engines/stock/markets/bonds/boards/" + boardId + "/securities/" + ticker + ".json?iss.meta=off";
+    return "https://iss.moex.com/iss/engines/stock/markets/bonds/boards/" + boardId + "/securities/" + ticker + ".json?iss.meta=off?iss.meta=off&iss.only=marketdata,securities,marketdata_yields" +
+      "&marketdata.columns=LAST,DURATION,YIELDTOOFFER,LCURRENTPRICE&securities.columns=SHORTNAME,SECNAME,LOTVALUE,COUPONVALUE,NEXTCOUPON,ACCRUEDINT,MATDATE,COUPONPERIOD,BUYBACKPRICE,LISTLEVEL,COUPONPERCENT,OFFERDATE,FACEUNIT&marketdata_yields.columns=EFFECTIVEYIELD";
 }
 
 function sleep(milliseconds) {
@@ -248,8 +249,8 @@ function clearCache(ticker) {
 
 function test() {
 
-    const ticker = "RU000A108NS2";
-    const board = "TQCB";
+    const ticker = "SU26248RMFS3";
+    const board = "TQOB";
     getUserCache().remove(ticker);
     const result = getMoexBond(ticker, board);
     const result2 = getMoexBond(ticker, board);

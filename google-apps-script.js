@@ -91,7 +91,7 @@ function getCryptoPriceUsd(ticker) {
     } else {
       // Ждем и рекурсивно пробуем снова
       Utilities.sleep(1000 + Math.random() * 2000);
-      return getAndCacheMoexBondData(ticker, boardId);
+      return getCryptoPriceUsd(ticker);
     }
 
 }

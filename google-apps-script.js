@@ -12,10 +12,8 @@ const moexColumnKeys = {
     matDate: "MATDATE", // Дата погашения
     couponPeriod: "COUPONPERIOD", // длительность купона
     buybackPrice: "BUYBACKPRICE", // цена оферты
-    listLevel: "LISTLEVEL",  // уровень листинга
     couponPercent: "COUPONPERCENT",
     offerDate: "OFFERDATE",  // дата оферты
-    faceUnit: "FACEUNIT",  // валюта номинала
     duration: "DURATION",  //  дюрация, дней
     yieldToOffer: "YIELDTOOFFER",  // доходность к оферте
     effectiveYield: "EFFECTIVEYIELD",  // эффективная доходность,
@@ -113,10 +111,8 @@ function parseMoexBond(json) {
     const matDate = parseMoexColumn(json.securities, moexColumnKeys.matDate);
     const couponPeriod = parseMoexColumn(json.securities, moexColumnKeys.couponPeriod);
     const buybackPrice = parseMoexColumn(json.securities, moexColumnKeys.buybackPrice);
-    const listLevel = parseMoexColumn(json.securities, moexColumnKeys.listLevel);
     const couponPercent = parseMoexColumn(json.securities, moexColumnKeys.couponPercent);
     const offerDate = parseMoexColumn(json.securities, moexColumnKeys.offerDate);
-    const faceUnit = parseMoexColumn(json.securities, moexColumnKeys.faceUnit);
     const duration = parseMoexColumn(json.marketdata, moexColumnKeys.duration);
     const yieldToOffer = parseMoexColumn(json.marketdata, moexColumnKeys.yieldToOffer);
     const effectiveYield = parseMoexColumn(json.marketdata_yields, moexColumnKeys.effectiveYield);
@@ -132,10 +128,8 @@ function parseMoexBond(json) {
         matDate,
         couponPeriod,
         buybackPrice,
-        listLevel,
         couponPercent,
         offerDate,
-        faceUnit,
         duration,
         yieldToOffer,
         effectiveYield,
@@ -229,8 +223,8 @@ function getMoexShareUrl(ticker, boardId) {
 }
 
 function getMoexBondUrl(ticker, boardId) {
-    return "https://iss.moex.com/iss/engines/stock/markets/bonds/boards/" + boardId + "/securities/" + ticker + ".json?iss.meta=off?iss.meta=off&iss.only=marketdata,securities,marketdata_yields" +
-      "&marketdata.columns=LAST,DURATION,YIELDTOOFFER,LCURRENTPRICE&securities.columns=SHORTNAME,SECNAME,LOTVALUE,COUPONVALUE,NEXTCOUPON,ACCRUEDINT,MATDATE,COUPONPERIOD,BUYBACKPRICE,LISTLEVEL,COUPONPERCENT,OFFERDATE,FACEUNIT&marketdata_yields.columns=EFFECTIVEYIELD";
+    return "https://iss.moex.com/iss/engines/stock/markets/bonds/boards/" + boardId + "/securities/" + ticker + ".json?iss.meta=off&iss.only=marketdata,securities,marketdata_yields" +
+      "&marketdata.columns=LAST,DURATION,YIELDTOOFFER,LCURRENTPRICE&securities.columns=SHORTNAME,SECNAME,LOTVALUE,COUPONVALUE,NEXTCOUPON,ACCRUEDINT,MATDATE,COUPONPERIOD,BUYBACKPRICE,COUPONPERCENT,OFFERDATE&marketdata_yields.columns=EFFECTIVEYIELD";
 }
 
 function sleep(milliseconds) {

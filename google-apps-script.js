@@ -145,7 +145,10 @@ function getAndCacheMoexShareData(ticker, boardId) {
     if (boardId === undefined || boardId === null) {
         boardId = "TQBR";
     }
-
+    const cached = getCachedTicker(ticker);
+    if (cached) {
+        return cached;
+    }
     const lockKey = `lock_${ticker}_${boardId}`;
     const cache = getUserCache();
 
@@ -188,6 +191,10 @@ function getAndCacheMoexShareData(ticker, boardId) {
 function getAndCacheMoexBondData(ticker, boardId) {
     if (boardId === undefined || boardId === null) {
         throw new Error("Provide board id");
+    }
+    const cached = getCachedTicker(ticker);
+    if (cached) {
+        return cached;
     }
 
     const lockKey = `lock_${ticker}_${boardId}`;

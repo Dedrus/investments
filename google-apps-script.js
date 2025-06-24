@@ -157,11 +157,22 @@ function getAndCacheMoexShareData(ticker, boardId) {
         cache.put(lockKey, 'locked', 30);
         
         const url = getMoexShareUrl(ticker, boardId);
-        const response = UrlFetchApp.fetch(url);
-        const json = JSON.parse(response.getContentText());
-        const result = parseMoexShare(json);
-        putTickerToCache(ticker, result);
-        return result;
+        let attempt = 0;
+        while (attempt < 6) {
+          try {
+            const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+            if (response.getResponseCode() === 200) {
+                  const json = JSON.parse(response.getContentText());
+                  const result = parseMoexShare(json);
+                  putTickerToCache(ticker, result);
+                  return result;
+              }
+          } catch (e) {
+              console.warn(`Attempt ${attempt + 1} failed:`, e);
+          }
+        sleep(1000 * (attempt + 1)); // Экспоненциальное увеличение задержки
+        attempt++;
+        }
       } finally {
         // Снимаем блокировку
         cache.remove(lockKey);
@@ -190,11 +201,22 @@ function getAndCacheMoexBondData(ticker, boardId) {
         cache.put(lockKey, 'locked', 30);
         
         const url = getMoexBondUrl(ticker, boardId);
-        const response = UrlFetchApp.fetch(url);
-        const json = JSON.parse(response.getContentText());
-        const result = parseMoexBond(json);
-        putTickerToCache(ticker, result);
-        return result;
+        let attempt = 0;
+        while (attempt < 6) {
+          try {
+            const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+            if (response.getResponseCode() === 200) {
+                  const json = JSON.parse(response.getContentText());
+                  const result = parseMoexBond(json);
+                  putTickerToCache(ticker, result);
+                  return result;
+              }
+          } catch (e) {
+              console.warn(`Attempt ${attempt + 1} failed:`, e);
+          }
+        sleep(1000 * (attempt + 1)); // Экспоненциальное увеличение задержки
+        attempt++;
+        }
       } finally {
         // Снимаем блокировку
         cache.remove(lockKey);

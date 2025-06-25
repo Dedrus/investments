@@ -231,7 +231,8 @@ function getAndCacheMoexBondData(ticker, boardId) {
 }
 
 function getCachedTicker(ticker) {
-    return JSON.parse(getUserCache().get(ticker));
+  const cached = getUserCache().get(ticker);
+  return cached ? JSON.parse(cached) : null;
 }
 
 function putTickerToCache(ticker, result) {
@@ -271,7 +272,6 @@ function clearCache(ticker) {
  */
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
-  
 
   ui.createMenu('📈 Инвестиции')
     .addItem('Пересчитать ошибки', 'forceRecalculation')
@@ -284,33 +284,55 @@ function onOpen() {
 function forceRecalculation() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   const sheets = spreadsheet.getSheets();
-  let totalErrors = 0;
+  let totalFixed = 0;
+  const startTime = new Date();
+
+  const forceRecalculateCell = (cell) => {
+    const formula = cell.getFormula();
+    if (!formula) return false;
+    
+    // 1. Сохраняем оригинальную формулу
+    const originalFormula = formula;
+    
+    // 2. Временно заменяем на простое значение
+    cell.setValue("⌛ Обновление...");
+    SpreadsheetApp.flush(); // Принудительно применяем изменения
+    
+    // 3. Возвращаем оригинальную формулу
+    cell.setFormula(originalFormula);
+    
+    return true;
+  };
 
   sheets.forEach(sheet => {
+    if (sheet.isSheetHidden()) return;
+    
     const range = sheet.getDataRange();
     const formulas = range.getFormulas();
-    const values = range.getValues();
-    let sheetErrors = 0;
+    const values = range.getDisplayValues();
 
-    formulas.forEach((row, rowIndex) => {
-      row.forEach((formula, colIndex) => {
-        if (formula) {
-          const cell = range.getCell(rowIndex + 1, colIndex + 1);
-          const value = values[rowIndex][colIndex];
+    for (let row = 0; row < formulas.length; row++) {
+      for (let col = 0; col < formulas[row].length; col++) {
+        // Проверка времени выполнения (чтобы не превысить лимит)
+        if (new Date() - startTime > 25000) {
+          SpreadsheetApp.getUi().alert(`⚠️ Прервано: перезапущено ${totalFixed} ячеек`);
+          return;
+        }
+        
+        const cell = range.getCell(row + 1, col + 1);
+        const displayedValue = values[row][col];
+        const formula = formulas[row][col];
 
-          if (value === "#ERROR!" || value === "#N/A" || cell.isBlank()) {
-            cell.clearContent();
-            sheetErrors++;
+        if (formula && displayedValue.startsWith("#") && formula.includes("getMoex")) {
+          if (forceRecalculateCell(cell)) {
+            totalFixed++;
           }
         }
-      });
-    });
-
-    console.log(`Лист "${sheet.getName()}": исправлено ${sheetErrors} ошибок`);
-    totalErrors += sheetErrors;
+      }
+    }
   });
 
-  SpreadsheetApp.getUi().alert(`✅ Готово! Исправлено ${totalErrors} ошибок на всех листах.`);
+  SpreadsheetApp.getUi().alert(`✅ Успешно перезапущено ${totalFixed} ячеек`);
 }
 
 function test() {
@@ -320,5 +342,10 @@ function test() {
     getUserCache().remove(ticker);
     const result = getMoexBond(ticker, board);
     const result2 = getMoexBond(ticker, board);
+
+    const shareTicker = "SBER";
+    getUserCache().remove(shareTicker);
+    const shareName = getMoexShareShortName(shareTicker);
+    const sharePrice = getMoexShareLastPrice(shareTicker);
     return result;
 }

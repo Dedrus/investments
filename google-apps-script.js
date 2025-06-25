@@ -22,7 +22,7 @@ const moexColumnKeys = {
 
 function getMoexShareLastPrice(ticker, boardId) {
     const cached = getCachedTicker(ticker);
-    if (cached) {
+    if (cached && cached.lastPrice) {
         return cached.lastPrice;
     }
     const result = getAndCacheMoexShareData(ticker, boardId);
@@ -35,7 +35,7 @@ function getMoexBondField(ticker, boardId, fieldName) {
 
 function getMoexShareShortName(ticker, boardId) {
     const cached = getCachedTicker(ticker);
-    if (cached) {
+    if (cached && cached.shortName) {
         return cached.shortName;
     }
     const result = getAndCacheMoexShareData(ticker, boardId);
@@ -51,10 +51,7 @@ function getMoexBond(ticker, boardId) {
 }
 
 function parseMoexShare(json) {
-    let lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice);
-    if (!lastPrice) {
-        lastPrice = 0;
-    }
+    const lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice);
     const shortName = parseMoexColumn(json.securities, moexColumnKeys.shortName);
 
     return {
@@ -99,9 +96,7 @@ function parseMoexBond(json) {
     if (!lastPrice) {
         lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice);
     }
-    if (!lastPrice) {
-        lastPrice = 0;
-    }
+
     const shortName = parseMoexColumn(json.securities, moexColumnKeys.shortName);
     const tickerName = parseMoexColumn(json.securities, moexColumnKeys.tickerName);
     const lotValue = parseMoexColumn(json.securities, moexColumnKeys.lotValue);
@@ -171,7 +166,7 @@ function getAndCacheMoexShareData(ticker, boardId) {
                   return result;
               }
           } catch (e) {
-              console.warn(`Attempt ${attempt + 1} failed:`, e);
+              console.warn(`Attempt ${attempt + 1} failed:`, ticker, boardId, e);
           }
         sleep(1000 * (attempt + 1)); // Экспоненциальное увеличение задержки
         attempt++;
@@ -219,7 +214,7 @@ function getAndCacheMoexBondData(ticker, boardId) {
                   return result;
               }
           } catch (e) {
-              console.warn(`Attempt ${attempt + 1} failed:`, e);
+              console.warn(`Attempt ${attempt + 1} failed:`, ticker, boardId, e);
           }
         sleep(1000 * (attempt + 1)); // Экспоненциальное увеличение задержки
         attempt++;
@@ -268,6 +263,54 @@ function getRandomInt(min, max) {
 
 function clearCache(ticker) {
     CacheService.getUserCache().remove(ticker);
+}
+
+/**
+ * Функция создает меню в Google Таблице при открытии.
+ * onOpen() — специальное имя, Google вызывает его автоматически.
+ */
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  
+
+  ui.createMenu('📈 Инвестиции')
+    .addItem('Пересчитать ошибки', 'forceRecalculation')
+    .addToUi();
+}
+
+/**
+ * Функция для пересчета упавших ячеек
+ */
+function forceRecalculation() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = spreadsheet.getSheets();
+  let totalErrors = 0;
+
+  sheets.forEach(sheet => {
+    const range = sheet.getDataRange();
+    const formulas = range.getFormulas();
+    const values = range.getValues();
+    let sheetErrors = 0;
+
+    formulas.forEach((row, rowIndex) => {
+      row.forEach((formula, colIndex) => {
+        if (formula) {
+          const cell = range.getCell(rowIndex + 1, colIndex + 1);
+          const value = values[rowIndex][colIndex];
+
+          if (value === "#ERROR!" || value === "#N/A" || cell.isBlank()) {
+            cell.clearContent();
+            sheetErrors++;
+          }
+        }
+      });
+    });
+
+    console.log(`Лист "${sheet.getName()}": исправлено ${sheetErrors} ошибок`);
+    totalErrors += sheetErrors;
+  });
+
+  SpreadsheetApp.getUi().alert(`✅ Готово! Исправлено ${totalErrors} ошибок на всех листах.`);
 }
 
 function test() {

@@ -19,7 +19,7 @@ const moexColumnKeys = {
     effectiveYield: "EFFECTIVEYIELD",  // эффективная доходность,
     lCurrentPrice: "LCURRENTPRICE", // цена
 };
-const maxLockAttempts = 25;
+const maxLockAttempts = 10;
 const maxFetchAttempts = 3;
 const cryptoBoardId = "__crypto"; // зарезервированная boardId для кэшей крипты
 function getMoexBondField(ticker, boardId, fieldName) {
@@ -70,13 +70,14 @@ function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParse
         return cacheHit;
     }
     const lockKey = getLockKey(ticker, boardId);
-    const cache = getUserCache();
 
     for (let i = 0; i < maxLockAttempts; i++) {
+        // каждый раз берем кэш заново, наверняка функция не получит изменения других функций в своем объекте
+        const cache = getUserCache();
         const lock = cache.get(lockKey);
         if (!lock) {
             try {
-                cache.put(lockKey, "locked", 30);
+                cache.put(lockKey, "locked", 20);
                 const url = urlBuilder(ticker, boardId);
                 const httpResponse = fetchWithRetries(ticker, boardId, url);
                 const result = responseContentTextParserFn(httpResponse.getContentText());
@@ -86,7 +87,7 @@ function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParse
                 cache.remove(lockKey);
             }
         }
-        sleep(1000);
+        sleep(1000 + Math.random() * 500);
 
         // после слипа проверяем вдруг кто-то загрузил
         const multiThreadCache = getCachedTicker(ticker, boardId);
@@ -239,30 +240,13 @@ function onOpen() {
         .addToUi();
 }
 
-/**
- * Функция для пересчета упавших ячеек
- */
 function forceRecalculation() {
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     const sheets = spreadsheet.getSheets();
     let totalFixed = 0;
 
-    const forceRecalculateCell = (cell) => {
-        const formula = cell.getFormula();
-        if (!formula) return false;
-
-        // 1. Сохраняем оригинальную формулу
-        const originalFormula = formula;
-
-        // 2. Временно заменяем на простое значение
-        cell.setValue("⌛ Обновление...");
-        SpreadsheetApp.flush(); // Принудительно применяем изменения
-
-        // 3. Возвращаем оригинальную формулу
-        cell.setFormula(originalFormula);
-
-        return true;
-    };
+    // 1. Собираем все ячейки, требующие обновления
+    const cellsToUpdate = [];
 
     sheets.forEach(sheet => {
         if (sheet.isSheetHidden()) return;
@@ -273,20 +257,37 @@ function forceRecalculation() {
 
         for (let row = 0; row < formulas.length; row++) {
             for (let col = 0; col < formulas[row].length; col++) {
-
-                const cell = range.getCell(row + 1, col + 1);
                 const displayedValue = values[row][col];
                 const formula = formulas[row][col];
 
                 if (formula && displayedValue.startsWith("#") && formula.includes("getMoex")) {
-                    if (forceRecalculateCell(cell)) {
-                        totalFixed++;
-                    }
+                    const cell = range.getCell(row + 1, col + 1);
+                    cellsToUpdate.push({
+                        cell: cell,
+                        formula: formula,
+                    });
+                    totalFixed++;
                 }
             }
         }
     });
 
+    if (cellsToUpdate.length === 0) {
+        SpreadsheetApp.getUi().alert("ℹ️ Нет ячеек, требующих пересчета");
+        return;
+    }
+
+    // 2. Массово устанавливаем временные значения
+    cellsToUpdate.forEach(item => {
+        item.cell.setValue("⌛ Обновление...");
+    });
+    SpreadsheetApp.flush(); // Принудительно применяем все изменения
+
+    // 3. Возвращаем оригинальные формулы
+    cellsToUpdate.forEach(item => {
+        item.cell.setFormula(item.formula);
+    });
+    SpreadsheetApp.flush(); // Принудительно применяем все изменения
     SpreadsheetApp.getUi().alert(`✅ Успешно перезапущено ${totalFixed} ячеек`);
 }
 

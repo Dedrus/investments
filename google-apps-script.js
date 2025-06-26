@@ -65,7 +65,7 @@ function getMoexBond(ticker, boardId) {
 }
 
 function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParserFn, errorContextType) {
-    const cacheHit = getCachedTicker(ticker, cryptoBoardId);
+    const cacheHit = getCachedTicker(ticker, boardId);
     if (cacheHit) {
         return cacheHit;
     }
@@ -78,6 +78,19 @@ function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParse
         if (!lock) {
             try {
                 cache.put(lockKey, "locked", 20);
+                if(i == 1) {
+                  // если мы тут значит кто-то до этого брал блокировку и возможно все загрузил
+                  let multiThreadCache = getCachedTicker(ticker, boardId);
+                  if (multiThreadCache) {
+                      return multiThreadCache;
+                  }
+                  // даем последний шанс
+                  sleep(10000);
+                  multiThreadCache = getCachedTicker(ticker, boardId);
+                  if (multiThreadCache) {
+                      return multiThreadCache;
+                  }
+                }
                 const url = urlBuilder(ticker, boardId);
                 const httpResponse = fetchWithRetries(ticker, boardId, url);
                 const result = responseContentTextParserFn(httpResponse.getContentText());
@@ -87,7 +100,7 @@ function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParse
                 cache.remove(lockKey);
             }
         }
-        sleep(1000 + Math.random() * 500);
+        sleep(1000 + Math.random() * 1000);
 
         // после слипа проверяем вдруг кто-то загрузил
         const multiThreadCache = getCachedTicker(ticker, boardId);

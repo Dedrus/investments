@@ -48,6 +48,7 @@ function getMoexShareField(ticker, boardId, fieldName) {
 
     return data[fieldName];
 }
+
 function getCryptoPriceUsd(ticker) {
     return fetchAndParseData(ticker, cryptoBoardId,
         (t) => "https://cryptoprices.cc/" + t,
@@ -96,6 +97,7 @@ function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParse
 
     throw new Error(`Could not get ${errorContextType} for ${ticker} ${boardId}`);
 }
+
 function fetchWithRetries(ticker, boardId, url) {
     let lastError;
     for (let i = 0; i < maxFetchAttempts; i++) {
@@ -116,8 +118,7 @@ function fetchWithRetries(ticker, boardId, url) {
 }
 
 
-function parseMoexShare(responseTextContent)
-{
+function parseMoexShare(responseTextContent) {
     const json = JSON.parse(responseTextContent);
     const lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice);
     const shortName = parseMoexColumn(json.securities, moexColumnKeys.shortName);

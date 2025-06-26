@@ -77,7 +77,7 @@ function getCryptoPriceUsd(ticker) {
                 cache.remove(lockKey);
             }
         }
-        sleep(1000 * (i + 1));
+        sleep(1000);
         // после слипа проверяем вдруг кто-то загрузил
         cached = getCachedTicker(ticker, boardId);
         if (cached) {
@@ -140,7 +140,7 @@ function getAndCacheMoexShareData(ticker, boardId) {
                 cache.remove(lockKey);
             }
         }
-        sleep(1000 * (i + 1));
+        sleep(1000);
         // после слипа проверяем вдруг кто-то загрузил
         const cached = getCachedTicker(ticker, boardId);
         if (cached) {

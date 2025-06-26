@@ -19,7 +19,7 @@ const moexColumnKeys = {
     effectiveYield: "EFFECTIVEYIELD",  // эффективная доходность,
     lCurrentPrice: "LCURRENTPRICE", // цена
 };
-const maxLockAttempts = 5;
+const maxLockAttempts = 25;
 const maxFetchAttempts = 3;
 const cryptoBoardId = "__crypto"; // зарезервированная boardId для кэшей крипты
 function getMoexBondField(ticker, boardId, fieldName) {
@@ -108,7 +108,7 @@ function getAndCacheMoexBondData(ticker, boardId) {
                 cache.remove(lockKey);
             }
         }
-        sleep(1000 * (i + 1));
+        sleep(1000);
 
         // после слипа проверяем вдруг кто-то загрузил
         const cached = getCachedTicker(ticker, boardId);

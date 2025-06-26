@@ -17,38 +17,154 @@ const moexColumnKeys = {
     duration: "DURATION",  //  дюрация, дней
     yieldToOffer: "YIELDTOOFFER",  // доходность к оферте
     effectiveYield: "EFFECTIVEYIELD",  // эффективная доходность,
-    lCurrentPrice: "LCURRENTPRICE" // цена
+    lCurrentPrice: "LCURRENTPRICE", // цена
 };
-
-function getMoexShareLastPrice(ticker, boardId) {
-    const cached = getCachedTicker(ticker);
-    if (cached && cached.lastPrice) {
-        return cached.lastPrice;
-    }
-    const result = getAndCacheMoexShareData(ticker, boardId);
-    return result.lastPrice;
-}
-
+const maxLockAttempts = 5;
+const maxFetchAttempts = 3;
+const cryptoBoardId = "__crypto"; // зарезервированная boardId для кэшей крипты
 function getMoexBondField(ticker, boardId, fieldName) {
+    if (boardId === undefined || boardId === null) {
+        throw new Error("Provide board id");
+    }
     return getMoexBond(ticker, boardId)[fieldName];
 }
 
-function getMoexShareShortName(ticker, boardId) {
-    const cached = getCachedTicker(ticker);
-    if (cached && cached.shortName) {
-        return cached.shortName;
+function getMoexShareField(ticker, boardId, fieldName) {
+    if (boardId === undefined || boardId === null) {
+        // режим по умолчанию для акций, для ETF другой
+        boardId = "TQBR";
     }
-    const result = getAndCacheMoexShareData(ticker, boardId);
-    return result.shortName;
+    return getMoexShare(ticker, boardId)[fieldName];
+}
+
+function getMoexShare(ticker, boardId) {
+    const cached = getCachedTicker(ticker, boardId);
+    if (cached) {
+        return cached;
+    }
+    return getAndCacheMoexShareData(ticker, boardId);
 }
 
 function getMoexBond(ticker, boardId) {
-    const cached = getCachedTicker(ticker);
+    const cached = getCachedTicker(ticker, boardId);
     if (cached) {
         return cached;
     }
     return getAndCacheMoexBondData(ticker, boardId);
 }
+
+function getCryptoPriceUsd(ticker) {
+    let cached = getCachedTicker(ticker, cryptoBoardId);
+    if (cached) {
+        return cached.lastPrice;
+    }
+    const lockKey = getLockKey(ticker, cryptoBoardId);
+    const cache = getUserCache();
+
+    for (let i = 0; i < maxLockAttempts; i++) {
+        const lock = cache.get(lockKey);
+        if (!lock) {
+            try {
+                // Устанавливаем блокировку на 30 секунд
+                cache.put(lockKey, "locked", 30);
+                const url = "https://cryptoprices.cc/" + ticker;
+                const httpResponse = fetchWithRetries(ticker, cryptoBoardId, url);
+                const result = httpResponse.getContentText().trim();
+                putTickerToCache(ticker, cryptoBoardId, { lastPrice: result });
+                return result;
+            } finally {
+                // Снимаем блокировку
+                cache.remove(lockKey);
+            }
+        }
+        sleep(1000 * (i + 1));
+        // после слипа проверяем вдруг кто-то загрузил
+        cached = getCachedTicker(ticker, boardId);
+        if (cached) {
+            return cached;
+        }
+    }
+    throw new Error(`Could not get value for crypto ${ticker}`);
+}
+
+function getAndCacheMoexBondData(ticker, boardId) {
+    const lockKey = getLockKey(ticker, boardId);
+    const cache = getUserCache();
+
+    for (let i = 0; i < maxLockAttempts; i++) {
+        const lock = cache.get(lockKey);
+        if (!lock) {
+            try {
+                // Устанавливаем блокировку на 30 секунд
+                cache.put(lockKey, "locked", 30);
+                const url = getMoexBondUrl(ticker, boardId);
+                const httpResponse = fetchWithRetries(ticker, boardId, url);
+                const json = JSON.parse(httpResponse.getContentText());
+                const result = parseMoexBond(json);
+                putTickerToCache(ticker, boardId, result);
+                return result;
+            } finally {
+                // Снимаем блокировку
+                cache.remove(lockKey);
+            }
+        }
+        sleep(1000 * (i + 1));
+
+        // после слипа проверяем вдруг кто-то загрузил
+        const cached = getCachedTicker(ticker, boardId);
+        if (cached) {
+            return cached;
+        }
+    }
+    throw new Error(`Could not get value for bond ${ticker} ${boardId}`);
+}
+
+function getAndCacheMoexShareData(ticker, boardId) {
+    const lockKey = getLockKey(ticker, boardId);
+    const cache = getUserCache();
+
+    for (let i = 0; i < maxLockAttempts; i++) {
+        const lock = cache.get(lockKey);
+        if (!lock) {
+            try {
+                // Устанавливаем блокировку на 30 секунд
+                cache.put(lockKey, "locked", 30);
+                const url = getMoexShareUrl(ticker, boardId);
+                const httpResponse = fetchWithRetries(ticker, boardId, url);
+                const json = JSON.parse(httpResponse.getContentText());
+                const result = parseMoexShare(json);
+                putTickerToCache(ticker, boardId, result);
+                return result;
+            } finally {
+                // Снимаем блокировку
+                cache.remove(lockKey);
+            }
+        }
+        sleep(1000 * (i + 1));
+        // после слипа проверяем вдруг кто-то загрузил
+        const cached = getCachedTicker(ticker, boardId);
+        if (cached) {
+            return cached;
+        }
+    }
+    throw new Error(`Could not get value for share ${ticker} ${boardId}`);
+}
+
+function fetchWithRetries(ticker, boardId, url) {
+    for (let i = 0; i < maxFetchAttempts; i++) {
+        try {
+            const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+            if (response.getResponseCode() === 200) {
+                return response;
+            }
+        } catch (error) {
+            console.error(error);
+        }
+        sleep(1000 * (i + 1));
+    }
+    throw new Error(`Could not fetch ${ticker} ${boardId} from ${url}`);
+}
+
 
 function parseMoexShare(json) {
     const lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice);
@@ -60,43 +176,7 @@ function parseMoexShare(json) {
     };
 }
 
-function getCryptoPriceUsd(ticker) {
-    const cached = getCachedTicker(ticker);
-    if (cached) {
-        return cached.lastPrice;
-    }
-    const lockKey = `lock_${ticker}_crypto`;
-    const cache = getUserCache();
-
-    const lock = cache.get(lockKey);
-
-    if (!lock) {
-      try {
-        // Устанавливаем блокировку на 30 секунд
-        cache.put(lockKey, 'locked', 30);
-        const url = "https://cryptoprices.cc/" + ticker;
-        const response = UrlFetchApp.fetch(url);
-        const result = response.getContentText().trim();
-        putTickerToCache(ticker, { lastPrice: result });
-        return result;
-      } finally {
-        // Снимаем блокировку
-        cache.remove(lockKey);
-      }
-    } else {
-      // Ждем и рекурсивно пробуем снова
-      Utilities.sleep(1000 + Math.random() * 2000);
-      return getCryptoPriceUsd(ticker);
-    }
-
-}
-
 function parseMoexBond(json) {
-    let lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lCurrentPrice);
-    if (!lastPrice) {
-        lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice);
-    }
-
     const shortName = parseMoexColumn(json.securities, moexColumnKeys.shortName);
     const tickerName = parseMoexColumn(json.securities, moexColumnKeys.tickerName);
     const lotValue = parseMoexColumn(json.securities, moexColumnKeys.lotValue);
@@ -108,8 +188,14 @@ function parseMoexBond(json) {
     const buybackPrice = parseMoexColumn(json.securities, moexColumnKeys.buybackPrice);
     const couponPercent = parseMoexColumn(json.securities, moexColumnKeys.couponPercent);
     const offerDate = parseMoexColumn(json.securities, moexColumnKeys.offerDate);
+
     const duration = parseMoexColumn(json.marketdata, moexColumnKeys.duration);
     const yieldToOffer = parseMoexColumn(json.marketdata, moexColumnKeys.yieldToOffer);
+    let lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lCurrentPrice);
+    if (!lastPrice) {
+        lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice);
+    }
+
     const effectiveYield = parseMoexColumn(json.marketdata_yields, moexColumnKeys.effectiveYield);
 
     return {
@@ -136,107 +222,23 @@ function parseMoexColumn(data, moexColumnKey) {
     return data.data[0][valueIndex];
 }
 
-function getAndCacheMoexShareData(ticker, boardId) {
-    if (boardId === undefined || boardId === null) {
-        boardId = "TQBR";
-    }
-    const cached = getCachedTicker(ticker);
-    if (cached) {
-        return cached;
-    }
-    const lockKey = `lock_${ticker}_${boardId}`;
-    const cache = getUserCache();
-
-    const lock = cache.get(lockKey);
-
-    if (!lock) {
-      try {
-        // Устанавливаем блокировку на 30 секунд
-        cache.put(lockKey, 'locked', 30);
-        
-        const url = getMoexShareUrl(ticker, boardId);
-        let attempt = 0;
-        while (attempt < 6) {
-          try {
-            const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-            if (response.getResponseCode() === 200) {
-                  const json = JSON.parse(response.getContentText());
-                  const result = parseMoexShare(json);
-                  putTickerToCache(ticker, result);
-                  return result;
-              }
-          } catch (e) {
-              console.warn(`Attempt ${attempt + 1} failed:`, ticker, boardId, e);
-          }
-        sleep(1000 * (attempt + 1)); // Экспоненциальное увеличение задержки
-        attempt++;
-        }
-      } finally {
-        // Снимаем блокировку
-        cache.remove(lockKey);
-      }
-    } else {
-      // Ждем и рекурсивно пробуем снова
-      sleep(1000 + getRandomInt(100, 500));
-      return getAndCacheMoexShareData(ticker, boardId);
-    }
-    
+function getLockKey(ticker, boardId) {
+    return `lock_${boardId}_${ticker}`;
 }
 
-function getAndCacheMoexBondData(ticker, boardId) {
-    if (boardId === undefined || boardId === null) {
-        throw new Error("Provide board id");
-    }
-    const cached = getCachedTicker(ticker);
-    if (cached) {
-        return cached;
-    }
-
-    const lockKey = `lock_${ticker}_${boardId}`;
-    const cache = getUserCache();
-
-    const lock = cache.get(lockKey);
-
-    if (!lock) {
-      try {
-        // Устанавливаем блокировку на 30 секунд
-        cache.put(lockKey, 'locked', 30);
-        
-        const url = getMoexBondUrl(ticker, boardId);
-        let attempt = 0;
-        while (attempt < 6) {
-          try {
-            const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-            if (response.getResponseCode() === 200) {
-                  const json = JSON.parse(response.getContentText());
-                  const result = parseMoexBond(json);
-                  putTickerToCache(ticker, result);
-                  return result;
-              }
-          } catch (e) {
-              console.warn(`Attempt ${attempt + 1} failed:`, ticker, boardId, e);
-          }
-        sleep(1000 * (attempt + 1)); // Экспоненциальное увеличение задержки
-        attempt++;
-        }
-      } finally {
-        // Снимаем блокировку
-        cache.remove(lockKey);
-      }
-    } else {
-      // Ждем и рекурсивно пробуем снова
-      sleep(1000 + getRandomInt(100, 500));
-      return getAndCacheMoexBondData(ticker, boardId);
-    }
+function getCachedTicker(ticker, boardId) {
+    const key = getCacheKey(ticker, boardId);
+    const cached = getUserCache().get(key);
+    return cached ? JSON.parse(cached) : null;
 }
 
-function getCachedTicker(ticker) {
-  const cached = getUserCache().get(ticker);
-  return cached ? JSON.parse(cached) : null;
+function putTickerToCache(ticker, boardId, result) {
+    const key = getCacheKey(ticker, boardId);
+    getUserCache().put(key, JSON.stringify(result), 60 * 30);
 }
 
-function putTickerToCache(ticker, result) {
-    getUserCache().put(ticker, JSON.stringify(result), 60 * 30);
+function getCacheKey(ticker, boardId) {
+    return `${boardId}_${ticker}`;
 }
 
 function getUserCache() {
@@ -244,26 +246,31 @@ function getUserCache() {
 }
 
 function getMoexShareUrl(ticker, boardId) {
-    return "https://iss.moex.com/iss/engines/stock/markets/shares/boards/" + boardId + "/securities/" + ticker + ".json?iss.meta=off&iss.only=marketdata,securities&marketdata.columns=LAST&securities.columns=SHORTNAME";
+    return "https://iss.moex.com/iss/engines/stock/markets/shares/boards/"
+        + boardId
+        + "/securities/"
+        + ticker
+        + ".json?iss.meta=off&iss.only=marketdata,securities&marketdata.columns=LAST&securities.columns=SHORTNAME";
 }
 
 function getMoexBondUrl(ticker, boardId) {
-    return "https://iss.moex.com/iss/engines/stock/markets/bonds/boards/" + boardId + "/securities/" + ticker + ".json?iss.meta=off&iss.only=marketdata,securities,marketdata_yields" +
-      "&marketdata.columns=LAST,DURATION,YIELDTOOFFER,LCURRENTPRICE&securities.columns=SHORTNAME,SECNAME,LOTVALUE,COUPONVALUE,NEXTCOUPON,ACCRUEDINT,MATDATE,COUPONPERIOD,BUYBACKPRICE,COUPONPERCENT,OFFERDATE&marketdata_yields.columns=EFFECTIVEYIELD";
+    return "https://iss.moex.com/iss/engines/stock/markets/bonds/boards/"
+        + boardId
+        + "/securities/"
+        + ticker +
+        ".json?iss.meta=off&iss.only=marketdata,securities,marketdata_yields" +
+        "&marketdata.columns=LAST,DURATION,YIELDTOOFFER,LCURRENTPRICE" +
+        "&securities.columns=SHORTNAME,SECNAME,LOTVALUE,COUPONVALUE,NEXTCOUPON,ACCRUEDINT,MATDATE,COUPONPERIOD,BUYBACKPRICE,COUPONPERCENT,OFFERDATE" +
+        "&marketdata_yields.columns=EFFECTIVEYIELD";
 }
 
 function sleep(milliseconds) {
     Utilities.sleep(milliseconds);
 }
 
-function getRandomInt(min, max) {
-    const minCeiled = Math.ceil(min);
-    const maxFloored = Math.floor(max);
-    return Math.floor(Math.random() * (maxFloored - minCeiled) + minCeiled); // The maximum is exclusive and the minimum is inclusive
-}
-
-function clearCache(ticker) {
-    CacheService.getUserCache().remove(ticker);
+function clearCache(ticker, boardId) {
+    const cacheKey = getCacheKey(ticker, boardId);
+    getUserCache().remove(cacheKey);
 }
 
 /**
@@ -271,81 +278,81 @@ function clearCache(ticker) {
  * onOpen() — специальное имя, Google вызывает его автоматически.
  */
 function onOpen() {
-  const ui = SpreadsheetApp.getUi();
+    const ui = SpreadsheetApp.getUi();
 
-  ui.createMenu('📈 Инвестиции')
-    .addItem('Пересчитать ошибки', 'forceRecalculation')
-    .addToUi();
+    ui.createMenu("📈 Инвестиции")
+        .addItem("Пересчитать ошибки", "forceRecalculation")
+        .addToUi();
 }
 
 /**
  * Функция для пересчета упавших ячеек
  */
 function forceRecalculation() {
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  const sheets = spreadsheet.getSheets();
-  let totalFixed = 0;
-  const startTime = new Date();
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheets = spreadsheet.getSheets();
+    let totalFixed = 0;
 
-  const forceRecalculateCell = (cell) => {
-    const formula = cell.getFormula();
-    if (!formula) return false;
-    
-    // 1. Сохраняем оригинальную формулу
-    const originalFormula = formula;
-    
-    // 2. Временно заменяем на простое значение
-    cell.setValue("⌛ Обновление...");
-    SpreadsheetApp.flush(); // Принудительно применяем изменения
-    
-    // 3. Возвращаем оригинальную формулу
-    cell.setFormula(originalFormula);
-    
-    return true;
-  };
+    const forceRecalculateCell = (cell) => {
+        const formula = cell.getFormula();
+        if (!formula) return false;
 
-  sheets.forEach(sheet => {
-    if (sheet.isSheetHidden()) return;
-    
-    const range = sheet.getDataRange();
-    const formulas = range.getFormulas();
-    const values = range.getDisplayValues();
+        // 1. Сохраняем оригинальную формулу
+        const originalFormula = formula;
 
-    for (let row = 0; row < formulas.length; row++) {
-      for (let col = 0; col < formulas[row].length; col++) {
-        // Проверка времени выполнения (чтобы не превысить лимит)
-        if (new Date() - startTime > 25000) {
-          SpreadsheetApp.getUi().alert(`⚠️ Прервано: перезапущено ${totalFixed} ячеек`);
-          return;
+        // 2. Временно заменяем на простое значение
+        cell.setValue("⌛ Обновление...");
+        SpreadsheetApp.flush(); // Принудительно применяем изменения
+
+        // 3. Возвращаем оригинальную формулу
+        cell.setFormula(originalFormula);
+
+        return true;
+    };
+
+    sheets.forEach(sheet => {
+        if (sheet.isSheetHidden()) return;
+
+        const range = sheet.getDataRange();
+        const formulas = range.getFormulas();
+        const values = range.getDisplayValues();
+
+        for (let row = 0; row < formulas.length; row++) {
+            for (let col = 0; col < formulas[row].length; col++) {
+
+                const cell = range.getCell(row + 1, col + 1);
+                const displayedValue = values[row][col];
+                const formula = formulas[row][col];
+
+                if (formula && displayedValue.startsWith("#") && formula.includes("getMoex")) {
+                    if (forceRecalculateCell(cell)) {
+                        totalFixed++;
+                    }
+                }
+            }
         }
-        
-        const cell = range.getCell(row + 1, col + 1);
-        const displayedValue = values[row][col];
-        const formula = formulas[row][col];
+    });
 
-        if (formula && displayedValue.startsWith("#") && formula.includes("getMoex")) {
-          if (forceRecalculateCell(cell)) {
-            totalFixed++;
-          }
-        }
-      }
-    }
-  });
-
-  SpreadsheetApp.getUi().alert(`✅ Успешно перезапущено ${totalFixed} ячеек`);
+    SpreadsheetApp.getUi().alert(`✅ Успешно перезапущено ${totalFixed} ячеек`);
 }
 
 function test() {
-
     const ticker = "SU26248RMFS3";
     const board = "TQOB";
-    getUserCache().remove(ticker);
+    clearCache(ticker, board);
     const result = getMoexBond(ticker, board);
-    const result2 = getMoexBond(ticker, board);
+    const cachedResult = getMoexBond(ticker, board);
+    const lastPrice = getMoexBondField(ticker, board, "lastPrice");
 
     const shareTicker = "SBER";
-    getUserCache().remove(shareTicker);
-    const shareName = getMoexShareShortName(shareTicker);
-    const sharePrice = getMoexShareLastPrice(shareTicker);
+    const shareBoardId = "TQBR";
+    clearCache(shareTicker, shareBoardId);
+    const shareName = getMoexShareField(shareTicker, shareBoardId, "shortName");
+    // проверка default Борды
+    const sharePrice = getMoexShareField(shareTicker, null, "lastPrice");
+
+    const cryptoTicker = "BTC";
+    clearCache(ticker, cryptoBoardId);
+    const cryptoPrice = getCryptoPriceUsd(cryptoTicker);
     return result;
 }

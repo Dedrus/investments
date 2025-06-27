@@ -273,7 +273,7 @@ function forceRecalculation() {
                 const displayedValue = values[row][col];
                 const formula = formulas[row][col];
 
-                if (formula && displayedValue.startsWith("#") && formula.includes("getMoex")) {
+                if (formula && displayedValue.startsWith("#") && (formula.includes("getMoex") || formula.includes("getCrypto"))) {
                     const cell = range.getCell(row + 1, col + 1);
                     cellsToUpdate.push({
                         cell: cell,

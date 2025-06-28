@@ -18,6 +18,7 @@ const moexColumnKeys = {
     yieldToOffer: "YIELDTOOFFER",  // доходность к оферте
     effectiveYield: "EFFECTIVEYIELD",  // эффективная доходность,
     lCurrentPrice: "LCURRENTPRICE", // цена
+    prevPrice: "PREVPRICE" // предыдущая цена для фоллбэка
 };
 const maxLockAttempts = 10;
 const maxFetchAttempts = 3;
@@ -134,7 +135,8 @@ function fetchWithRetries(ticker, boardId, url) {
 
 function parseMoexShare(responseTextContent) {
     const json = JSON.parse(responseTextContent);
-    const lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice);
+    const lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice)
+      || parseMoexColumn(json.securities, moexColumnKeys.prevPrice);
     const shortName = parseMoexColumn(json.securities, moexColumnKeys.shortName);
 
     return {
@@ -159,10 +161,9 @@ function parseMoexBond(responseTextContent) {
 
     const duration = parseMoexColumn(json.marketdata, moexColumnKeys.duration);
     const yieldToOffer = parseMoexColumn(json.marketdata, moexColumnKeys.yieldToOffer);
-    let lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lCurrentPrice);
-    if (!lastPrice) {
-        lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice);
-    }
+    const lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lCurrentPrice) 
+      || parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice)
+      || parseMoexColumn(json.securities, moexColumnKeys.prevPrice);
 
     const effectiveYield = parseMoexColumn(json.marketdata_yields, moexColumnKeys.effectiveYield);
 
@@ -218,7 +219,7 @@ function getMoexShareUrl(ticker, boardId) {
         + boardId
         + "/securities/"
         + ticker
-        + ".json?iss.meta=off&iss.only=marketdata,securities&marketdata.columns=LAST&securities.columns=SHORTNAME";
+        + ".json?iss.meta=off&iss.only=marketdata,securities&marketdata.columns=LAST&securities.columns=SHORTNAME,PREVPRICE";
 }
 
 function getMoexBondUrl(ticker, boardId) {
@@ -228,7 +229,7 @@ function getMoexBondUrl(ticker, boardId) {
         + ticker +
         ".json?iss.meta=off&iss.only=marketdata,securities,marketdata_yields" +
         "&marketdata.columns=LAST,DURATION,YIELDTOOFFER,LCURRENTPRICE" +
-        "&securities.columns=SHORTNAME,SECNAME,LOTVALUE,COUPONVALUE,NEXTCOUPON,ACCRUEDINT,MATDATE,COUPONPERIOD,BUYBACKPRICE,COUPONPERCENT,OFFERDATE" +
+        "&securities.columns=SHORTNAME,SECNAME,LOTVALUE,COUPONVALUE,NEXTCOUPON,ACCRUEDINT,MATDATE,COUPONPERIOD,BUYBACKPRICE,COUPONPERCENT,OFFERDATE,PREVPRICE" +
         "&marketdata_yields.columns=EFFECTIVEYIELD";
 }
 

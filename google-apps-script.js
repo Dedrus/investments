@@ -19,7 +19,7 @@ const moexColumnKeys = {
     effectiveYield: "EFFECTIVEYIELD",  // эффективная доходность,
     lCurrentPrice: "LCURRENTPRICE", // цена
     prevPrice: "PREVPRICE", // предыдущая цена для фоллбэка
-    lotSize: "LOTSIZE", // размер лота для акций
+    lotSize: "LOTSIZE" // размер лота для акций
 };
 const maxLockAttempts = 10;
 const maxFetchAttempts = 3;
@@ -80,7 +80,7 @@ function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParse
         if (!lock) {
             try {
                 getUserCache().put(lockKey, "locked", 20);
-                if (i == 1) {
+                if(i == 1) {
                     // если мы тут значит кто-то до этого брал блокировку и возможно все загрузил
                     let multiThreadCache = getCachedTicker(ticker, boardId);
                     if (multiThreadCache) {
@@ -109,7 +109,7 @@ function fetchWithRetries(ticker, boardId, url, responseContentTextParserFn) {
     const cache = getUserCache();
     const cachedResponse = cache.get(urlCacheKey);
 
-    if (cachedResponse) {
+    if(cachedResponse) {
         const result = responseContentTextParserFn(cachedResponse);
         putTickerToCache(ticker, boardId, result);
         return result;
@@ -148,7 +148,7 @@ function parseMoexShare(responseTextContent) {
     return {
         lastPrice,
         shortName,
-        lotSize,
+        lotSize
     };
 }
 
@@ -317,8 +317,8 @@ function forceRecalculation() {
 }
 
 function onEdit(e) {
-    const sh = e.range.getSheet();
-    if (sh.getName() == "Контроль" && e.range.columnStart == 1 && e.range.rowStart == 1 && e.value == "TRUE") {
+    const sh = e.range.getSheet()
+    if(sh.getName() == "Контроль" && e.range.columnStart == 1 && e.range.rowStart == 1 && e.value == "TRUE") {
         e.range.setValue("FALSE");
         forceRecalculation();
         e.source.toast("Запущено");

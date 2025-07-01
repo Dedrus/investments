@@ -18,10 +18,13 @@ const moexColumnKeys = {
     yieldToOffer: "YIELDTOOFFER",  // доходность к оферте
     effectiveYield: "EFFECTIVEYIELD",  // эффективная доходность,
     lCurrentPrice: "LCURRENTPRICE", // цена
+    prevPrice: "PREVPRICE", // предыдущая цена для фоллбэка
+    lotSize: "LOTSIZE", // размер лота для акций
 };
 const maxLockAttempts = 10;
 const maxFetchAttempts = 3;
 const cryptoBoardId = "__crypto"; // зарезервированная boardId для кэшей крипты
+
 function getMoexBondField(ticker, boardId, fieldName) {
     if (boardId === undefined || boardId === null) {
         throw new Error("Provide board id");
@@ -52,42 +55,44 @@ function getMoexShareField(ticker, boardId, fieldName) {
 function getCryptoPriceUsd(ticker) {
     return fetchAndParseData(ticker, cryptoBoardId,
         (t) => "https://cryptoprices.cc/" + t,
-        (content) => (content.trim()),
-        "crypto data");
+        (content) => (content.trim()));
 }
 
 function getMoexShare(ticker, boardId) {
-    return fetchAndParseData(ticker, boardId, getMoexShareUrl, parseMoexShare, "share data");
+    return fetchAndParseData(ticker, boardId, getMoexShareUrl, parseMoexShare);
 }
 
 function getMoexBond(ticker, boardId) {
-    return fetchAndParseData(ticker, boardId, getMoexBondUrl, parseMoexBond, "bond data");
+    return fetchAndParseData(ticker, boardId, getMoexBondUrl, parseMoexBond);
 }
 
-function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParserFn, errorContextType) {
-    const cacheHit = getCachedTicker(ticker, cryptoBoardId);
+function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParserFn) {
+    const cacheHit = getCachedTicker(ticker, boardId);
     if (cacheHit) {
         return cacheHit;
     }
     const lockKey = getLockKey(ticker, boardId);
+    const url = urlBuilder(ticker, boardId);
 
     for (let i = 0; i < maxLockAttempts; i++) {
         // каждый раз берем кэш заново, наверняка функция не получит изменения других функций в своем объекте
-        const cache = getUserCache();
-        const lock = cache.get(lockKey);
+        const lock = getUserCache().get(lockKey);
         if (!lock) {
             try {
-                cache.put(lockKey, "locked", 20);
-                const url = urlBuilder(ticker, boardId);
-                const httpResponse = fetchWithRetries(ticker, boardId, url);
-                const result = responseContentTextParserFn(httpResponse.getContentText());
-                putTickerToCache(ticker, boardId, result);
-                return result;
+                getUserCache().put(lockKey, "locked", 20);
+                if (i == 1) {
+                    // если мы тут значит кто-то до этого брал блокировку и возможно все загрузил
+                    let multiThreadCache = getCachedTicker(ticker, boardId);
+                    if (multiThreadCache) {
+                        return multiThreadCache;
+                    }
+                }
+                return fetchWithRetries(ticker, boardId, url, responseContentTextParserFn);
             } finally {
-                cache.remove(lockKey);
+                getUserCache().remove(lockKey);
             }
         }
-        sleep(1000 + Math.random() * 500);
+        sleep(1000 + Math.random() * 100);
 
         // после слипа проверяем вдруг кто-то загрузил
         const multiThreadCache = getCachedTicker(ticker, boardId);
@@ -95,18 +100,32 @@ function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParse
             return multiThreadCache;
         }
     }
-
-    throw new Error(`Could not get ${errorContextType} for ${ticker} ${boardId}`);
+    console.warn("Lock wait failed, fetch triggered", ticker, boardId, url);
+    return fetchWithRetries(ticker, boardId, url, responseContentTextParserFn);
 }
 
-function fetchWithRetries(ticker, boardId, url) {
+function fetchWithRetries(ticker, boardId, url, responseContentTextParserFn) {
+    const urlCacheKey = getResponseCacheKey(ticker, boardId);
+    const cache = getUserCache();
+    const cachedResponse = cache.get(urlCacheKey);
+
+    if (cachedResponse) {
+        const result = responseContentTextParserFn(cachedResponse);
+        putTickerToCache(ticker, boardId, result);
+        return result;
+    }
+
     let lastError;
     for (let i = 0; i < maxFetchAttempts; i++) {
         try {
             const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
             const responseCode = response.getResponseCode();
             if (responseCode === 200) {
-                return response;
+                const contentText = response.getContentText();
+                cache.put(urlCacheKey, contentText, 120);
+                const result = responseContentTextParserFn(contentText);
+                putTickerToCache(ticker, boardId, result);
+                return result;
             }
             lastError = `HTTP ${responseCode}`;
         } catch (error) {
@@ -121,12 +140,15 @@ function fetchWithRetries(ticker, boardId, url) {
 
 function parseMoexShare(responseTextContent) {
     const json = JSON.parse(responseTextContent);
-    const lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice);
+    const lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice)
+        || parseMoexColumn(json.securities, moexColumnKeys.prevPrice);
     const shortName = parseMoexColumn(json.securities, moexColumnKeys.shortName);
+    const lotSize = parseMoexColumn(json.securities, moexColumnKeys.lotSize);
 
     return {
         lastPrice,
         shortName,
+        lotSize,
     };
 }
 
@@ -146,10 +168,9 @@ function parseMoexBond(responseTextContent) {
 
     const duration = parseMoexColumn(json.marketdata, moexColumnKeys.duration);
     const yieldToOffer = parseMoexColumn(json.marketdata, moexColumnKeys.yieldToOffer);
-    let lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lCurrentPrice);
-    if (!lastPrice) {
-        lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice);
-    }
+    const lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lCurrentPrice)
+        || parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice)
+        || parseMoexColumn(json.securities, moexColumnKeys.prevPrice);
 
     const effectiveYield = parseMoexColumn(json.marketdata_yields, moexColumnKeys.effectiveYield);
 
@@ -196,6 +217,10 @@ function getCacheKey(ticker, boardId) {
     return `${boardId}_${ticker}`;
 }
 
+function getResponseCacheKey(ticker, boardId) {
+    return `${boardId}_${ticker}_response`;
+}
+
 function getUserCache() {
     return CacheService.getUserCache();
 }
@@ -205,7 +230,7 @@ function getMoexShareUrl(ticker, boardId) {
         + boardId
         + "/securities/"
         + ticker
-        + ".json?iss.meta=off&iss.only=marketdata,securities&marketdata.columns=LAST&securities.columns=SHORTNAME";
+        + ".json?iss.meta=off&iss.only=marketdata,securities&marketdata.columns=LAST&securities.columns=SHORTNAME,PREVPRICE,LOTSIZE";
 }
 
 function getMoexBondUrl(ticker, boardId) {
@@ -215,7 +240,7 @@ function getMoexBondUrl(ticker, boardId) {
         + ticker +
         ".json?iss.meta=off&iss.only=marketdata,securities,marketdata_yields" +
         "&marketdata.columns=LAST,DURATION,YIELDTOOFFER,LCURRENTPRICE" +
-        "&securities.columns=SHORTNAME,SECNAME,LOTVALUE,COUPONVALUE,NEXTCOUPON,ACCRUEDINT,MATDATE,COUPONPERIOD,BUYBACKPRICE,COUPONPERCENT,OFFERDATE" +
+        "&securities.columns=SHORTNAME,SECNAME,LOTVALUE,COUPONVALUE,NEXTCOUPON,ACCRUEDINT,MATDATE,COUPONPERIOD,BUYBACKPRICE,COUPONPERCENT,OFFERDATE,PREVPRICE" +
         "&marketdata_yields.columns=EFFECTIVEYIELD";
 }
 
@@ -260,7 +285,7 @@ function forceRecalculation() {
                 const displayedValue = values[row][col];
                 const formula = formulas[row][col];
 
-                if (formula && displayedValue.startsWith("#") && formula.includes("getMoex")) {
+                if (formula && displayedValue.startsWith("#") && (formula.includes("getMoex") || formula.includes("getCrypto"))) {
                     const cell = range.getCell(row + 1, col + 1);
                     cellsToUpdate.push({
                         cell: cell,
@@ -291,11 +316,21 @@ function forceRecalculation() {
     SpreadsheetApp.getUi().alert(`✅ Успешно перезапущено ${totalFixed} ячеек`);
 }
 
+function onEdit(e) {
+    const sh = e.range.getSheet();
+    if (sh.getName() == "Контроль" && e.range.columnStart == 1 && e.range.rowStart == 1 && e.value == "TRUE") {
+        e.range.setValue("FALSE");
+        forceRecalculation();
+        e.source.toast("Запущено");
+    }
+}
+
 function test() {
-    const ticker = "SU26248RMFS3";
+    const ticker = "SU26244RMFS2";
     const board = "TQOB";
     clearCache(ticker, board);
     const result = getMoexBond(ticker, board);
+
     const cachedResult = getMoexBond(ticker, board);
     const lastPrice = getMoexBondField(ticker, board, "lastPrice");
 
@@ -303,6 +338,7 @@ function test() {
     const shareBoardId = "TQBR";
     clearCache(shareTicker, shareBoardId);
     const shareName = getMoexShareField(shareTicker, shareBoardId, "shortName");
+    const lotSize = getMoexShareField(shareTicker, shareBoardId, "lotSize");
     // проверка default Борды
     const sharePrice = getMoexShareField(shareTicker, null, "lastPrice");
 

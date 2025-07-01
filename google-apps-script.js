@@ -19,9 +19,9 @@ const moexColumnKeys = {
     effectiveYield: "EFFECTIVEYIELD",  // эффективная доходность,
     lCurrentPrice: "LCURRENTPRICE", // цена
     prevPrice: "PREVPRICE", // предыдущая цена для фоллбэка
-    lotSize: "LOTSIZE" // размер лота для акций
+    lotSize: "LOTSIZE", // размер лота для акций
 };
-const maxLockAttempts = 10;
+const maxCacheTries = 10;
 const maxFetchAttempts = 3;
 const cryptoBoardId = "__crypto"; // зарезервированная boardId для кэшей крипты
 
@@ -67,49 +67,42 @@ function getMoexBond(ticker, boardId) {
 }
 
 function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParserFn) {
-    const cacheHit = getCachedTicker(ticker, boardId);
-    if (cacheHit) {
-        return cacheHit;
-    }
-    const lockKey = getLockKey(ticker, boardId);
+    const alreadyRequestedKey = getAlreadyRequestedKey(ticker, boardId);
     const url = urlBuilder(ticker, boardId);
-
-    for (let i = 0; i < maxLockAttempts; i++) {
-        // каждый раз берем кэш заново, наверняка функция не получит изменения других функций в своем объекте
-        const lock = getUserCache().get(lockKey);
-        if (!lock) {
-            try {
-                getUserCache().put(lockKey, "locked", 20);
-                if(i == 1) {
-                    // если мы тут значит кто-то до этого брал блокировку и возможно все загрузил
-                    let multiThreadCache = getCachedTicker(ticker, boardId);
-                    if (multiThreadCache) {
-                        return multiThreadCache;
-                    }
-                }
+    
+    for (let i = 0; i < maxCacheTries; i++) {
+        const cacheHit = getCachedTicker(ticker, boardId);
+        if (cacheHit) {
+            return cacheHit;
+        }
+        const alreadyRequested = getUserCache().get(alreadyRequestedKey);
+        if (alreadyRequested) {
+            sleep(1000);
+        } else {
+            // рандомная задержка и повторная проверка кэша если две функции зашли в блок
+            sleep(Math.random() * 1000);
+            if (!getUserCache().get(alreadyRequestedKey)) {
+                getUserCache().put(alreadyRequestedKey, "running", 10);
                 return fetchWithRetries(ticker, boardId, url, responseContentTextParserFn);
-            } finally {
-                getUserCache().remove(lockKey);
             }
         }
-        sleep(1000 + Math.random() * 100);
-
-        // после слипа проверяем вдруг кто-то загрузил
-        const multiThreadCache = getCachedTicker(ticker, boardId);
-        if (multiThreadCache) {
-            return multiThreadCache;
-        }
     }
-    console.warn("Lock wait failed, fetch triggered", ticker, boardId, url);
+
+    const multiThreadCache = getCachedTicker(ticker, boardId);
+    if (multiThreadCache) {
+        return multiThreadCache;
+    }
+    getUserCache().put(alreadyRequestedKey, "running", 10);
     return fetchWithRetries(ticker, boardId, url, responseContentTextParserFn);
+
 }
 
 function fetchWithRetries(ticker, boardId, url, responseContentTextParserFn) {
-    const urlCacheKey = getResponseCacheKey(ticker, boardId);
+    const responseCacheKey = `response_${boardId}_${ticker}`;
     const cache = getUserCache();
-    const cachedResponse = cache.get(urlCacheKey);
+    const cachedResponse = cache.get(responseCacheKey);
 
-    if(cachedResponse) {
+    if (cachedResponse) {
         const result = responseContentTextParserFn(cachedResponse);
         putTickerToCache(ticker, boardId, result);
         return result;
@@ -122,7 +115,7 @@ function fetchWithRetries(ticker, boardId, url, responseContentTextParserFn) {
             const responseCode = response.getResponseCode();
             if (responseCode === 200) {
                 const contentText = response.getContentText();
-                cache.put(urlCacheKey, contentText, 120);
+                cache.put(responseCacheKey, contentText, 120);
                 const result = responseContentTextParserFn(contentText);
                 putTickerToCache(ticker, boardId, result);
                 return result;
@@ -148,7 +141,7 @@ function parseMoexShare(responseTextContent) {
     return {
         lastPrice,
         shortName,
-        lotSize
+        lotSize,
     };
 }
 
@@ -198,8 +191,8 @@ function parseMoexColumn(data, moexColumnKey) {
     return data.data[0][valueIndex];
 }
 
-function getLockKey(ticker, boardId) {
-    return `lock_${boardId}_${ticker}`;
+function getAlreadyRequestedKey(ticker, boardId) {
+    return `running_${boardId}_${ticker}`;
 }
 
 function getCachedTicker(ticker, boardId) {
@@ -215,10 +208,6 @@ function putTickerToCache(ticker, boardId, result) {
 
 function getCacheKey(ticker, boardId) {
     return `${boardId}_${ticker}`;
-}
-
-function getResponseCacheKey(ticker, boardId) {
-    return `${boardId}_${ticker}_response`;
 }
 
 function getUserCache() {
@@ -316,9 +305,13 @@ function forceRecalculation() {
     SpreadsheetApp.getUi().alert(`✅ Успешно перезапущено ${totalFixed} ячеек`);
 }
 
+/**
+ * Специальная функция триггер для чекбокса.
+ * Запуск пересчета с мобилки (там нет меню).
+ */
 function onEdit(e) {
-    const sh = e.range.getSheet()
-    if(sh.getName() == "Контроль" && e.range.columnStart == 1 && e.range.rowStart == 1 && e.value == "TRUE") {
+    const sh = e.range.getSheet();
+    if (sh.getName() == "Контроль" && e.range.columnStart == 1 && e.range.rowStart == 1 && e.value == "TRUE") {
         e.range.setValue("FALSE");
         forceRecalculation();
         e.source.toast("Запущено");

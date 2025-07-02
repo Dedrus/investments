@@ -69,7 +69,7 @@ function getMoexBond(ticker, boardId) {
 function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParserFn) {
     const alreadyRequestedKey = getAlreadyRequestedKey(ticker, boardId);
     const url = urlBuilder(ticker, boardId);
-    
+
     for (let i = 0; i < maxCacheTries; i++) {
         const cacheHit = getCachedTicker(ticker, boardId);
         if (cacheHit) {
@@ -314,7 +314,6 @@ function onEdit(e) {
     if (sh.getName() == "Контроль" && e.range.columnStart == 1 && e.range.rowStart == 1 && e.value == "TRUE") {
         e.range.setValue("FALSE");
         forceRecalculation();
-        e.source.toast("Запущено");
     }
 }
 

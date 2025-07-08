@@ -69,7 +69,7 @@ function getMoexBond(ticker, boardId) {
 function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParserFn) {
     const alreadyRequestedKey = getAlreadyRequestedKey(ticker, boardId);
     const url = urlBuilder(ticker, boardId);
-
+    
     for (let i = 0; i < maxCacheTries; i++) {
         const cacheHit = getCachedTicker(ticker, boardId);
         if (cacheHit) {
@@ -87,11 +87,11 @@ function fetchAndParseData(ticker, boardId, urlBuilder, responseContentTextParse
             }
         }
     }
-
     const multiThreadCache = getCachedTicker(ticker, boardId);
     if (multiThreadCache) {
         return multiThreadCache;
     }
+
     getUserCache().put(alreadyRequestedKey, "running", 10);
     return fetchWithRetries(ticker, boardId, url, responseContentTextParserFn);
 
@@ -121,8 +121,9 @@ function fetchWithRetries(ticker, boardId, url, responseContentTextParserFn) {
                 return result;
             }
             lastError = `HTTP ${responseCode}`;
+            Logger.log(`${boardId} ${ticker} ${i} HTTP request error ${lastError}`);
         } catch (error) {
-            console.error(error);
+            Logger.log(error);
             lastError = error;
         }
         sleep(1000 * (i + 1));
@@ -160,7 +161,8 @@ function parseMoexBond(responseTextContent) {
     const offerDate = parseMoexColumn(json.securities, moexColumnKeys.offerDate);
 
     const duration = parseMoexColumn(json.marketdata, moexColumnKeys.duration);
-    const yieldToOffer = parseMoexColumn(json.marketdata, moexColumnKeys.yieldToOffer);
+    const yieldToOffer = parseMoexColumn(json.marketdata, moexColumnKeys.yieldToOffer)
+        || parseMoexColumn(json.marketdata_yields, moexColumnKeys.yieldToOffer);
     const lastPrice = parseMoexColumn(json.marketdata, moexColumnKeys.lCurrentPrice)
         || parseMoexColumn(json.marketdata, moexColumnKeys.lastPrice)
         || parseMoexColumn(json.securities, moexColumnKeys.prevPrice);
@@ -230,7 +232,7 @@ function getMoexBondUrl(ticker, boardId) {
         ".json?iss.meta=off&iss.only=marketdata,securities,marketdata_yields" +
         "&marketdata.columns=LAST,DURATION,YIELDTOOFFER,LCURRENTPRICE" +
         "&securities.columns=SHORTNAME,SECNAME,LOTVALUE,COUPONVALUE,NEXTCOUPON,ACCRUEDINT,MATDATE,COUPONPERIOD,BUYBACKPRICE,COUPONPERCENT,OFFERDATE,PREVPRICE" +
-        "&marketdata_yields.columns=EFFECTIVEYIELD";
+        "&marketdata_yields.columns=EFFECTIVEYIELD,YIELDTOOFFER";
 }
 
 function sleep(milliseconds) {
